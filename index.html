@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beacon Isle Timeshare</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        import React, { useState, useEffect } from 'react';
+import { Send, Trash2, Plus, X, MessageSquare, Home, DollarSign, MapPin, Calendar, User } from 'lucide-react';
+
+export default function TimeshareMarketplace() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [view, setView] = useState('login');
+  const [listings, setListings] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [selectedListing, setSelectedListing] = useState(null);
+  const [showMessageModal, setShowMessageModal] = useState(false);
+
+  // Load data from storage on mount and check for expired listings
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Check for expired listings when data loads
+  useEffect(() => {
+    if (listings.length > 0) {
+      checkAndRemoveExpiredListings();
+    }
+  }, [listings.length]);
+
+  const loadData = async () => {
+    try {
+      const listingsResult = await window.storage.get('timeshare-listings');
+      const messagesResult = await window.storage.get('timeshare-messages');
+      
+      if (listingsResult?.value) {
+        setListings(JSON.parse(listingsResult.value));
+      }
+      if (messagesResult?.value) {
+        setMessages(JSON.parse(messagesResult.value));
+      }
+    } catch (error) {
+      console.log('No existing data found');
+    }
+  };
+
+  const saveListings = async (newListings) => {
+    setListings(newListings);
+    try {
+      await window.storage.set('timeshare-listings', JSON.stringify(newListings));
+    } catch (error) {
+      console.error('Failed to save listings:', error);
+    }
+  };
+
+  const saveMessages = async (newMessages) => {
+    setMessages(newMessages);
+    try {
+      await window.storage.set('timeshare-messages', JSON.stringify(newMessages));
+    } catch (error) {
+      console.error('Failed to save messages:', error);
+    }
+  };
+
+  const checkAndRemoveExpiredListings = () => {
+    const now = new Date();
+    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const expiredListings = listings.filter(listing => {
+      // Get all messages for this listing where the owner was contacted
+      const listingMessages = messages.filter(m => 
+        m.listingId === listing.id && m.to === listing.owner
+      );
+      
+      // If there are no messages, check listing age
+      if (listingMessages.length === 0) {
+        return false; // Don't expire listings with no messages
+      }
+      
+      // Get the most recent message to the owner
+      const mostRecentMessage = listingMessages.reduce((latest, msg) => {
+        return new Date(msg.timestamp) > new Date(latest.timestamp) ? msg : latest;
+      }, listingMessages[0]);
+      
+      // Check if owner has responded since that message
+      const ownerResponses = messages.filter(m => 
+        m.listingId === listing.id && 
+        m.from === listing.owner &&
+        new Date(m.timestamp) > new Date(mostRecentMessage.timestamp)
+      );
+      
+      // If owner hasn't responded and message is older than a month
+      return ownerResponses.length === 0 && 
+             new Date(mostRecentMessage.timestamp) < oneMonthAgo;
+    });
+    
+    if (expiredListings.length > 0) {
+      const activeListings = listings.filter(l => 
+        !expiredListings.find(expired => expired.id === l.id)
+      );
+      saveListings(activeListings);
+    }
+  };
+
+  const handleLogin = (username) => {
+    if (username.trim()) {
+      setCurrentUser(username.trim());
+      setView('marketplace');
+    }
+  };
+
+  const handleAddListing = (listing) => {
+    const newListing = {
+      ...listing,
+      id: Date.now().toString(),
+      owner: currentUser,
+      createdAt: new Date().toISOString()
+    };
+    saveListings([...listings, newListing]);
+    setView('marketplace');
+  };
+
+  const handleDeleteListing = (listingId) => {
+    saveListings(listings.filter(l => l.id !== listingId));
+  };
+
+  const handleSendMessage = (listingId, messageText) => {
+    const newMessage = {
+      id: Date.now().toString(),
+      listingId,
+      from: currentUser,
+      to: listings.find(l => l.id === listingId).owner,
+      text: messageText,
+      timestamp: new Date().toISOString()
+    };
+    const updatedMessages = [...messages, newMessage];
+    saveMessages(updatedMessages);
+    setShowMessageModal(false);
+  };
+
+  const getUserMessages = () => {
+    return messages.filter(m => m.to === currentUser || m.from === currentUser);
+  };
+
+  if (!currentUser) {
+    return <LoginView onLogin={handleLogin} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      <nav className="bg-white shadow-md">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Home className="text-indigo-600" size={28} />
+            <h1 className="text-2xl font-bold text-gray-800">Beacon Isle Timeshare</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setView('marketplace')}
+              className={`px-4 py-2 rounded-lg transition ${view === 'marketplace' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              Marketplace
+            </button>
+            <button
+              onClick={() => setView('my-listings')}
+              className={`px-4 py-2 rounded-lg transition ${view === 'my-listings' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              My Listings
+            </button>
+            <button
+              onClick={() => setView('messages')}
+              className={`px-4 py-2 rounded-lg transition relative ${view === 'messages' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <MessageSquare size={20} className="inline mr-1" />
+              Messages
+              {getUserMessages().length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {getUserMessages().length}
+                </span>
+              )}
+            </button>
+            <div className="flex items-center gap-2 text-gray-700">
+              <User size={20} />
+              <span className="font-medium">{currentUser}</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {view === 'marketplace' && (
+          <MarketplaceView
+            listings={listings}
+            currentUser={currentUser}
+            onContactSeller={(listing) => {
+              setSelectedListing(listing);
+              setShowMessageModal(true);
+            }}
+          />
+        )}
+        {view === 'my-listings' && (
+          <MyListingsView
+            listings={listings.filter(l => l.owner === currentUser)}
+            onAddNew={() => setView('add-listing')}
+            onDelete={handleDeleteListing}
+          />
+        )}
+        {view === 'add-listing' && (
+          <AddListingView
+            onSubmit={handleAddListing}
+            onCancel={() => setView('my-listings')}
+          />
+        )}
+        {view === 'messages' && (
+          <MessagesView
+            messages={getUserMessages()}
+            currentUser={currentUser}
+            listings={listings}
+          />
+        )}
+      </main>
+
+      {showMessageModal && (
+        <MessageModal
+          listing={selectedListing}
+          onSend={(text) => handleSendMessage(selectedListing.id, text)}
+          onClose={() => setShowMessageModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LoginView({ onLogin }) {
+  const [username, setUsername] = useState('');
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <Home className="text-indigo-600" size={40} />
+          <h1 className="text-3xl font-bold text-gray-800">Beacon Isle Timeshare</h1>
+        </div>
+        <p className="text-gray-600 text-center mb-6">Enter a username to get started</p>
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && onLogin(username)}
+          placeholder="Choose a username"
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+        />
+        <button
+          onClick={() => onLogin(username)}
+          className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition"
+        >
+          Enter Marketplace
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MarketplaceView({ listings, currentUser, onContactSeller }) {
+  return (
+    <div>
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">Available Beacon Isle Timeshares</h2>
+      {listings.length === 0 ? (
+        <div className="bg-white p-12 rounded-xl text-center">
+          <Home className="mx-auto text-gray-400 mb-4" size={64} />
+          <p className="text-gray-500 text-lg">No Beacon Isle timeshares listed yet. Be the first to add one!</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {listings.map(listing => (
+            <ListingCard
+              key={listing.id}
+              listing={listing}
+              currentUser={currentUser}
+              onContact={() => onContactSeller(listing)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ListingCard({ listing, currentUser, onContact }) {
+  return (
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition">
+      <div className="h-48 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center">
+        {listing.imageUrl ? (
+          <img src={listing.imageUrl} alt={listing.title} className="w-full h-full object-cover" />
+        ) : (
+          <Home className="text-white" size={64} />
+        )}
+      </div>
+      <div className="p-5">
+        <h3 className="text-xl font-bold text-gray-800 mb-2">{listing.title}</h3>
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center text-gray-600">
+            <MapPin size={16} className="mr-2" />
+            <span className="text-sm">{listing.location}</span>
+          </div>
+          <div className="flex items-center text-gray-600">
+            <Calendar size={16} className="mr-2" />
+            <span className="text-sm">{listing.week}</span>
+          </div>
+          <div className="flex items-center text-indigo-600 font-bold">
+            <DollarSign size={20} className="mr-1" />
+            <span className="text-lg">{listing.price}</span>
+          </div>
+        </div>
+        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{listing.description}</p>
+        {listing.owner !== currentUser && (
+          <button
+            onClick={onContact}
+            className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+          >
+            <MessageSquare size={18} />
+            Contact Seller
+          </button>
+        )}
+        {listing.owner === currentUser && (
+          <div className="text-center text-gray-500 text-sm py-2 bg-gray-50 rounded-lg">
+            Your Listing
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MyListingsView({ listings, onAddNew, onDelete }) {
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-bold text-gray-800">My Listings</h2>
+        <button
+          onClick={onAddNew}
+          className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition flex items-center gap-2"
+        >
+          <Plus size={20} />
+          Add New Listing
+        </button>
+      </div>
+      {listings.length === 0 ? (
+        <div className="bg-white p-12 rounded-xl text-center">
+          <Home className="mx-auto text-gray-400 mb-4" size={64} />
+          <p className="text-gray-500 text-lg mb-4">You haven't added any listings yet</p>
+          <button
+            onClick={onAddNew}
+            className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition"
+          >
+            Create Your First Listing
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {listings.map(listing => (
+            <div key={listing.id} className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="h-48 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center">
+                {listing.imageUrl ? (
+                  <img src={listing.imageUrl} alt={listing.title} className="w-full h-full object-cover" />
+                ) : (
+                  <Home className="text-white" size={64} />
+                )}
+              </div>
+              <div className="p-5">
+                <h3 className="text-xl font-bold text-gray-800 mb-2">{listing.title}</h3>
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center text-gray-600">
+                    <MapPin size={16} className="mr-2" />
+                    <span className="text-sm">{listing.location}</span>
+                  </div>
+                  <div className="flex items-center text-gray-600">
+                    <Calendar size={16} className="mr-2" />
+                    <span className="text-sm">{listing.week}</span>
+                  </div>
+                  <div className="flex items-center text-indigo-600 font-bold">
+                    <DollarSign size={20} className="mr-1" />
+                    <span className="text-lg">{listing.price}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onDelete(listing.id)}
+                  className="w-full bg-red-500 text-white py-2 rounded-lg font-semibold hover:bg-red-600 transition flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={18} />
+                  Delete Listing
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddListingView({ onSubmit, onCancel }) {
+  const [formData, setFormData] = useState({
+    title: '',
+    location: 'Beacon Isle, Plettenberg Bay',
+    week: '',
+    price: '',
+    description: '',
+    imageUrl: ''
+  });
+
+  const handleSubmit = () => {
+    if (formData.title && formData.week && formData.price) {
+      onSubmit(formData);
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">Add New Listing</h2>
+      <div className="bg-white p-8 rounded-xl shadow-lg">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">Title *</label>
+            <input
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData({...formData, title: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">Location</label>
+            <input
+              type="text"
+              value={formData.location}
+              disabled
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+            />
+            <p className="text-sm text-gray-500 mt-1">All listings are for Beacon Isle resort</p>
+          </div>
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">Week *</label>
+            <input
+              type="text"
+              value={formData.week}
+              onChange={(e) => setFormData({...formData, week: e.target.value})}
+              placeholder="e.g., Week 12, Summer, July 1-8"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">Price *</label>
+            <input
+              type="text"
+              value={formData.price}
+              onChange={(e) => setFormData({...formData, price: e.target.value})}
+              placeholder="e.g., $5,000"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">Image URL (optional)</label>
+            <input
+              type="url"
+              value={formData.imageUrl}
+              onChange={(e) => setFormData({...formData, imageUrl: e.target.value})}
+              placeholder="https://example.com/image.jpg"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              rows="4"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+        <div className="flex gap-4 mt-6">
+          <button
+            onClick={handleSubmit}
+            className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition"
+          >
+            Add Listing
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessagesView({ messages, currentUser, listings }) {
+  const groupedMessages = messages.reduce((acc, msg) => {
+    const otherUser = msg.from === currentUser ? msg.to : msg.from;
+    if (!acc[otherUser]) acc[otherUser] = [];
+    acc[otherUser].push(msg);
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">Messages</h2>
+      {messages.length === 0 ? (
+        <div className="bg-white p-12 rounded-xl text-center">
+          <MessageSquare className="mx-auto text-gray-400 mb-4" size={64} />
+          <p className="text-gray-500 text-lg">No messages yet</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(groupedMessages).map(([otherUser, msgs]) => (
+            <div key={otherUser} className="bg-white p-6 rounded-xl shadow-lg">
+              <h3 className="font-bold text-lg text-gray-800 mb-4">Conversation with {otherUser}</h3>
+              <div className="space-y-3">
+                {msgs.map(msg => {
+                  const listing = listings.find(l => l.id === msg.listingId);
+                  return (
+                    <div key={msg.id} className={`p-4 rounded-lg ${msg.from === currentUser ? 'bg-indigo-100 ml-8' : 'bg-gray-100 mr-8'}`}>
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-semibold text-gray-800">{msg.from}</span>
+                        <span className="text-xs text-gray-500">{new Date(msg.timestamp).toLocaleString()}</span>
+                      </div>
+                      <p className="text-gray-700">{msg.text}</p>
+                      {listing && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          Re: {listing.title}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MessageModal({ listing, onSend, onClose }) {
+  const [message, setMessage] = useState('');
+
+  const handleSend = () => {
+    if (message.trim()) {
+      onSend(message);
+      setMessage('');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-gray-800">Contact Seller</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+        <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+          <p className="font-semibold text-gray-800">{listing.title}</p>
+          <p className="text-sm text-gray-600">{listing.location}</p>
+        </div>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Write your message..."
+          rows="4"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+        />
+        <button
+          onClick={handleSend}
+          className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+        >
+          <Send size={18} />
+          Send Message
+        </button>
+      </div>
+    </div>
+  );
+}
+        
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TimeshareMarketplace />);
+    </script>
+</body>
+</html>
